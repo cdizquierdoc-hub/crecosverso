@@ -241,6 +241,20 @@ const $ = id => document.getElementById(id);
 const vistas = ['v-inicio','v-buscando','v-permiso','v-fuera','v-form','v-ok','v-aviso'];
 let pos = null, tienda = null;
 
+/* ---- Candado 1: un registro por teléfono ---- */
+const LS_ID = 'crecosverso_disp', LS_OK = 'crecosverso_registrado';
+function leer(k){ try { const v = localStorage.getItem(k); if (v) return v; } catch(e){}
+  const m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; }
+function guardar(k, v){ try { localStorage.setItem(k, v); } catch(e){}
+  document.cookie = k + '=' + encodeURIComponent(v) + '; max-age=' + 60*60*24*60 + '; path=/; SameSite=Lax'; }
+let DISP = leer(LS_ID);
+if (!DISP) { DISP = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)); guardar(LS_ID, DISP); }
+function yaRegistrado(){
+  if (!leer(LS_OK)) return false;
+  aviso({code:'dispositivo', msg:'Este teléfono ya registró una participación. ¡Mucha suerte en el sorteo del lunes 23 de noviembre!'});
+  return true;
+}
+
 function ver(id){
   vistas.forEach(v => $(v).classList.toggle('hide', v !== id));
   $('hero').classList.toggle('mini', id !== 'v-inicio');
@@ -281,12 +295,13 @@ function checkDemo(p){
 
 function aviso(r){
   $('avisoTit').textContent = r.code === 'despues' ? '¡El registro cerró!' : r.code === 'antes' ? '¡Aún no empieza!'
-    : r.code === 'precision' ? 'Señal GPS débil 📡' : r.code === 'no_calibrada' ? '¡Casi listo!' : 'Ups, algo falló';
+    : r.code === 'precision' ? 'Señal GPS débil 📡' : r.code === 'dispositivo' ? '¡Ya estás participando! 🎮' : r.code === 'no_calibrada' ? '¡Casi listo!' : 'Ups, algo falló';
   $('avisoTxt').textContent = r.msg || 'Intenta de nuevo en unos segundos.';
   ver('v-aviso');
 }
 
 async function iniciar(){
+  if (yaRegistrado()) return;
   ver('v-buscando');
   $('buscandoTxt').textContent = 'Activando el radar del Crecosverso 🛰️';
   try {
@@ -336,10 +351,11 @@ $('form').addEventListener('submit', async e => {
   if (!d.acepta) return fail(null,'Debes aceptar los términos y condiciones.');
   $('formMsg').textContent = ''; $('btnEnviar').disabled = true; $('btnEnviar').firstElementChild.textContent = 'Enviando…';
   try {
-    const r = API_URL ? await api('registrar', Object.assign({datos:d, ua:navigator.userAgent}, pos))
+    const r = API_URL ? await api('registrar', Object.assign({datos:d, ua:navigator.userAgent, disp:DISP}, pos))
                       : {ok:true, region: tienda.region};
-    if (r.ok) { $('okRegion').textContent = r.region; $('okPrueba').classList.toggle('hide', !r.prueba); ver('v-ok'); confeti(); }
+    if (r.ok) { if (!r.prueba) guardar(LS_OK, '1'); $('okRegion').textContent = r.region; $('okPrueba').classList.toggle('hide', !r.prueba); ver('v-ok'); confeti(); }
     else if (r.code === 'fuera') ver('v-fuera');
+    else if (r.code === 'dispositivo') { guardar(LS_OK, '1'); aviso(r); }
     else if (['antes','despues','precision','no_calibrada'].includes(r.code)) aviso(r);
     else fail(null, r.msg || 'No se pudo registrar. Intenta de nuevo.');
   } catch (err) { fail(null,'Sin conexión. Intenta de nuevo.'); }
